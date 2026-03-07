@@ -147,6 +147,46 @@ function filterSev(sev) {
 """
 
 
+_GRADE_THRESHOLDS: list[tuple[int, str]] = [
+    (97, "A+"), (93, "A"), (90, "A−"),
+    (87, "B+"), (83, "B"), (80, "B−"),
+    (77, "C+"), (73, "C"), (70, "C−"),
+    (67, "D+"), (63, "D"), (60, "D−"),
+    (0,  "F"),
+]
+
+_STATUS_FAIL_SEVS = {"critical", "high"}
+
+
+def _letter_grade(score: int) -> str:
+    """Return a letter grade for a security score (0–100).
+
+    Args:
+        score: Integer security score.
+
+    Returns:
+        Letter grade string, e.g. 'A', 'B+', 'F'.
+    """
+    for threshold, grade in _GRADE_THRESHOLDS:
+        if score >= threshold:
+            return grade
+    return "F"
+
+
+def _score_bar(score: int, width: int = 38) -> str:
+    """Render an ASCII progress bar for the given score.
+
+    Args:
+        score: Integer security score in [0, 100].
+        width: Total character width of the bar.
+
+    Returns:
+        Bar string using filled (#) and empty (-) characters.
+    """
+    filled = round(score * width / 100)
+    return "#" * filled + "-" * (width - filled)
+
+
 class Reporter:
     """Renders fuzzing results as terminal output, HTML, or JSON."""
 
@@ -160,52 +200,105 @@ class Reporter:
         _console.rule("[bold]PromptFuzz Security Report[/bold]")
         _console.print()
 
-        # Score panel
-        score_colour = (
-            "green" if result.score >= 80
-            else "yellow" if result.score >= 50
-            else "orange3" if result.score >= 20
-            else "red"
+        # ── Score block ───────────────────────────────────────────────────
+        score = result.score
+        grade = _letter_grade(score)
+
+        score_colour, risk_label = (
+            ("bright_green", "LOW RISK")      if score >= 80 else
+            ("yellow",       "MEDIUM RISK")   if score >= 50 else
+            ("orange3",      "HIGH RISK")     if score >= 20 else
+            ("red",          "CRITICAL RISK")
         )
-        score_label = (
-            "Low Risk" if result.score >= 80
-            else "Medium Risk" if result.score >= 50
-            else "High Risk" if result.score >= 20
-            else "Critical Risk"
+
+        n_fail = sum(
+            1 for v in result.vulnerabilities if v.severity in _STATUS_FAIL_SEVS
         )
-        _console.print(
-            Panel(
-                f"[bold {score_colour}]{result.score}/100[/bold {score_colour}]"
-                f"  [{score_colour}]{score_label}[/{score_colour}]\n"
-                f"[dim]{result.attacks_run} attacks · "
-                f"{len(result.vulnerabilities)} vulnerabilities · "
-                f"{len(result.passed)} passed · "
-                f"{len(result.errors)} errors · "
-                f"{result.duration_seconds:.1f}s[/dim]",
-                title="Security Score",
-                expand=False,
-            )
+        n_warn = len(result.vulnerabilities) - n_fail
+        n_pass = len(result.passed)
+        n_err  = len(result.errors)
+
+        bar = _score_bar(score)
+
+        score_body = (
+            f"  [{score_colour}]{score:>3}/100[/{score_colour}]"
+            f"  [bold {score_colour}]{grade}[/bold {score_colour}]"
+            f"  [{score_colour}]{risk_label}[/{score_colour}]\n\n"
+            f"  [{score_colour}]{bar}[/{score_colour}]\n\n"
+            f"  [bold red]FAIL  {n_fail:>4}[/bold red]"
+            f"   [bold yellow]WARN  {n_warn:>4}[/bold yellow]"
+            f"   [bold green]PASS  {n_pass:>4}[/bold green]"
+            f"   [dim]ERR   {n_err:>4}[/dim]\n"
+            f"  [dim]{result.attacks_run} attacks · {result.duration_seconds:.1f}s[/dim]"
         )
+        _console.print(Panel(score_body, title="[bold]Security Score[/bold]", expand=False))
         _console.print()
 
+        # ── Category breakdown ────────────────────────────────────────────
+        cat_stats: dict[str, dict[str, int]] = {}
+        for v in result.vulnerabilities:
+            c = v.attack.category
+            cat_stats.setdefault(c, {"fail": 0, "warn": 0, "pass": 0})
+            if v.severity in _STATUS_FAIL_SEVS:
+                cat_stats[c]["fail"] += 1
+            else:
+                cat_stats[c]["warn"] += 1
+        for ar in result.passed:
+            c = ar.attack.category
+            cat_stats.setdefault(c, {"fail": 0, "warn": 0, "pass": 0})
+            cat_stats[c]["pass"] += 1
+
+        if cat_stats:
+            cat_table = Table(
+                title="Category Breakdown",
+                show_header=True,
+                header_style="bold dim",
+                box=None,
+                padding=(0, 2),
+            )
+            cat_table.add_column("Category", min_width=18)
+            cat_table.add_column("FAIL", justify="right", style="bold red")
+            cat_table.add_column("WARN", justify="right", style="bold yellow")
+            cat_table.add_column("PASS", justify="right", style="bold green")
+
+            for cat in sorted(cat_stats):
+                s = cat_stats[cat]
+                cat_table.add_row(
+                    cat,
+                    str(s["fail"]) if s["fail"] else "[dim]0[/dim]",
+                    str(s["warn"]) if s["warn"] else "[dim]0[/dim]",
+                    str(s["pass"]) if s["pass"] else "[dim]0[/dim]",
+                )
+            _console.print(cat_table)
+            _console.print()
+
+        # ── Vulnerability table ───────────────────────────────────────────
         if result.vulnerabilities:
-            table = Table(
-                title="Vulnerabilities",
+            vtable = Table(
+                title="Findings",
                 show_header=True,
                 header_style="bold dim",
             )
-            table.add_column("ID", style="dim", width=10)
-            table.add_column("Name", min_width=30)
-            table.add_column("Category", width=16)
-            table.add_column("Severity", width=10)
-            table.add_column("Confidence", width=12, justify="right")
+            vtable.add_column("Status", width=8)
+            vtable.add_column("ID", style="dim", width=10)
+            vtable.add_column("Name", min_width=28)
+            vtable.add_column("Category", width=16)
+            vtable.add_column("Severity", width=10)
+            vtable.add_column("Confidence", width=10, justify="right")
 
             for vuln in sorted(
                 result.vulnerabilities,
                 key=lambda v: list(SEVERITY_COLOURS.keys()).index(v.severity),
             ):
                 colour = SEVERITY_COLOURS.get(vuln.severity, "white")
-                table.add_row(
+                is_fail = vuln.severity in _STATUS_FAIL_SEVS
+                status_text = (
+                    Text("FAIL", style="bold red")
+                    if is_fail
+                    else Text("WARN", style="bold yellow")
+                )
+                vtable.add_row(
+                    status_text,
                     vuln.id,
                     vuln.name,
                     vuln.attack.category,
@@ -213,9 +306,15 @@ class Reporter:
                     f"{vuln.result.confidence * 100:.0f}%",
                 )
 
-            _console.print(table)
+            _console.print(vtable)
         else:
-            _console.print("[bold green]No vulnerabilities detected.[/bold green]")
+            _console.print(
+                Panel(
+                    "[bold green]PASS  All attacks passed — no vulnerabilities detected.[/bold green]",
+                    border_style="green",
+                    expand=False,
+                )
+            )
 
         _console.print()
         _console.print(

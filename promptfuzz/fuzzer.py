@@ -262,8 +262,15 @@ class Fuzzer:
 
         duration = (datetime.now(timezone.utc) - start).total_seconds()
 
+        if callable(self.target):
+            mod = getattr(self.target, "__module__", None) or ""
+            name = getattr(self.target, "__qualname__", None) or str(self.target)
+            target_desc = f"{mod}:{name}" if mod else name
+        else:
+            target_desc = str(self.target)
+
         return FuzzResult(
-            target_description=str(self.target),
+            target_description=target_desc,
             context=self.context,
             attacks_run=len(attacks),
             vulnerabilities=vulnerabilities,

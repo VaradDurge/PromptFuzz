@@ -72,6 +72,16 @@ class FuzzResult:
 
         Reporter().save_json(self, path)
 
+    def to_txt(self, path: str) -> None:
+        """Save results as a plain-text report.
+
+        Args:
+            path: File path for the TXT output.
+        """
+        from promptfuzz.reporter import Reporter
+
+        Reporter().save_txt(self, path)
+
 
 class Fuzzer:
     """Orchestrates attack loading, execution, and result analysis."""

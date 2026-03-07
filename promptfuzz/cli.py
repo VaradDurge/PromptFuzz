@@ -66,10 +66,14 @@ def _resolve_target(target_str: str) -> Any:
     return fn
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option(__version__, prog_name="promptfuzz")
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """PromptFuzz — adversarial security testing for LLM applications."""
+    if ctx.invoked_subcommand is None:
+        from promptfuzz.wizard import run_wizard
+        run_wizard()
 
 
 @main.command("scan")

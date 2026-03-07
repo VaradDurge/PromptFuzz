@@ -252,3 +252,92 @@ class Reporter:
             json.dumps(data, indent=2, default=str), encoding="utf-8"
         )
         _console.print(f"[green]JSON report saved to:[/green] {path}")
+
+    def save_txt(self, result: "FuzzResult", path: str) -> None:
+        """Save a plain-text vulnerability report.
+
+        Args:
+            result: The FuzzResult to render.
+            path: Destination file path.
+        """
+        from promptfuzz import __version__
+
+        lines: list[str] = []
+        sep = "=" * 60
+
+        lines += [
+            sep,
+            f"PromptFuzz v{__version__} — Security Report",
+            sep,
+            f"Target    : {result.target_description}",
+            f"Context   : {result.context}",
+            f"Timestamp : {result.timestamp[:19]}",
+            f"Duration  : {result.duration_seconds:.1f}s",
+            "",
+            f"Score     : {result.score}/100  "
+            + (
+                "Low Risk" if result.score >= 80
+                else "Medium Risk" if result.score >= 50
+                else "High Risk" if result.score >= 20
+                else "Critical Risk"
+            ),
+            f"Attacks   : {result.attacks_run}",
+            f"Vulnerable: {len(result.vulnerabilities)}",
+            f"Passed    : {len(result.passed)}",
+            f"Errors    : {len(result.errors)}",
+            "",
+        ]
+
+        severity_order = ["critical", "high", "medium", "low"]
+        sorted_vulns = sorted(
+            result.vulnerabilities,
+            key=lambda v: severity_order.index(v.severity),
+        )
+
+        if sorted_vulns:
+            lines += [sep, "VULNERABILITIES", sep, ""]
+            for i, vuln in enumerate(sorted_vulns, 1):
+                lines += [
+                    f"[{i}] {vuln.id} — {vuln.name}",
+                    f"    Severity   : {vuln.severity.upper()}",
+                    f"    Category   : {vuln.attack.category}",
+                    f"    Confidence : {vuln.result.confidence * 100:.0f}%",
+                    f"    Description: {vuln.attack.description}",
+                    f"    Evidence   : {vuln.result.evidence}",
+                    f"    Prompt     :",
+                ]
+                # Wrap long prompt lines at 72 chars
+                prompt = vuln.attack.prompt
+                for chunk_start in range(0, min(len(prompt), 500), 72):
+                    lines.append(f"      {prompt[chunk_start:chunk_start + 72]}")
+                if len(prompt) > 500:
+                    lines.append("      [prompt truncated...]")
+                # Show the model's actual response
+                lines.append("    Model Output:")
+                model_response = vuln.result.response or "(no response)"
+                for chunk_start in range(0, min(len(model_response), 600), 72):
+                    lines.append(
+                        f"      {model_response[chunk_start:chunk_start + 72]}"
+                    )
+                if len(model_response) > 600:
+                    lines.append("      [response truncated...]")
+                lines += [
+                    f"    Remediation: {vuln.attack.remediation}",
+                    f"    Tags       : {', '.join(vuln.attack.tags)}",
+                    "",
+                ]
+        else:
+            lines += [sep, "No vulnerabilities found.", sep, ""]
+
+        if result.passed:
+            lines += ["PASSED CHECKS", "-" * 40]
+            for ar in result.passed:
+                lines.append(f"  OK  {ar.attack.id} — {ar.attack.name}")
+            lines.append("")
+
+        lines += [sep, "End of report", sep]
+
+        Path(path).write_text(
+            "\n".join(lines), encoding="utf-8", errors="replace"
+        )
+        _console.print(f"[green]TXT report saved to:[/green] {path}")

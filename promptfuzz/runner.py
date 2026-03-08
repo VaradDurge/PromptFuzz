@@ -39,6 +39,7 @@ class Runner:
         headers: dict[str, str] | None = None,
         input_field: str = DEFAULT_INPUT_FIELD,
         output_field: str = DEFAULT_OUTPUT_FIELD,
+        extra_fields: dict[str, Any] | None = None,
         max_workers: int = DEFAULT_MAX_WORKERS,
         timeout: float = DEFAULT_TIMEOUT,
         verbose: bool = False,
@@ -50,6 +51,7 @@ class Runner:
             headers: Extra HTTP headers for URL-mode requests.
             input_field: JSON body key that holds the prompt text.
             output_field: JSON response key that holds the reply text.
+            extra_fields: Extra fixed key-value pairs merged into every request payload.
             max_workers: Maximum concurrent in-flight requests.
             timeout: Per-request timeout in seconds.
             verbose: Whether to emit verbose progress messages.
@@ -58,6 +60,7 @@ class Runner:
         self.headers = headers or {}
         self.input_field = input_field
         self.output_field = output_field
+        self.extra_fields = extra_fields or {}
         self.max_workers = max_workers
         self.timeout = timeout
         self.verbose = verbose
@@ -221,7 +224,7 @@ class Runner:
             httpx.HTTPStatusError: If the server returns a non-2xx status.
             KeyError: If the output_field is missing from the response JSON.
         """
-        payload = {self.input_field: attack.prompt}
+        payload = {self.input_field: attack.prompt, **self.extra_fields}
         response = await client.post(str(self.target), json=payload)
         response.raise_for_status()
 

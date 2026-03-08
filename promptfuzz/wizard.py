@@ -38,6 +38,38 @@ _SEVERITY_CHOICES = [
 ]
 
 
+def _ask_url_fields() -> tuple[str, dict[str, str]]:
+    """Ask for the response field name and any extra fixed payload fields.
+
+    Returns:
+        Tuple of (output_field, extra_fields dict).
+    """
+    output_field = questionary.text(
+        "Response field name (JSON key the API returns the reply in):",
+        default="response",
+    ).ask()
+    if output_field is None:
+        sys.exit(0)
+
+    extra_raw = questionary.text(
+        "Extra payload fields? (e.g. conversation_id=abc123,api_key=xyz) "
+        "Leave blank to skip:",
+        default="",
+    ).ask()
+    if extra_raw is None:
+        sys.exit(0)
+
+    extra_fields: dict[str, str] = {}
+    if extra_raw.strip():
+        for pair in extra_raw.split(","):
+            pair = pair.strip()
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                extra_fields[k.strip()] = v.strip()
+
+    return output_field.strip() or "response", extra_fields
+
+
 def _ask_target() -> str:
     """Ask for target type and then the specific target string.
 
@@ -178,6 +210,10 @@ def run_wizard() -> None:
     _console.print()
 
     target = _ask_target()
+    output_field = "response"
+    extra_fields: dict[str, str] = {}
+    if target.startswith("http://") or target.startswith("https://"):
+        output_field, extra_fields = _ask_url_fields()
     categories = _ask_categories()
     output_fmt = _ask_output()
     severity = _ask_severity()
@@ -207,6 +243,10 @@ def run_wizard() -> None:
     summary.append(f"{output_label}\n")
     summary.append("  Severity : ", style="dim")
     summary.append(f"{severity}+\n")
+    if extra_fields:
+        summary.append("  Extra    : ", style="dim")
+        extra_str = ", ".join(f"{k}={v}" for k, v in extra_fields.items())
+        summary.append(f"{extra_str}\n")
     if use_ai:
         summary.append("  AI attacks: ", style="dim")
         summary.append("enabled\n", style="yellow")
@@ -223,7 +263,7 @@ def run_wizard() -> None:
         sys.exit(0)
 
     _console.print()
-    _launch_scan(target, categories, output_fmt, severity)
+    _launch_scan(target, categories, output_fmt, severity, output_field, extra_fields)
 
 
 def _launch_scan(
@@ -231,6 +271,8 @@ def _launch_scan(
     categories: list[str],
     output_fmt: str,
     severity: str,
+    output_field: str = "response",
+    extra_fields: dict[str, str] | None = None,
 ) -> None:
     """Execute the scan with the wizard's chosen settings.
 
@@ -239,6 +281,8 @@ def _launch_scan(
         categories: Attack categories to run.
         output_fmt: One of 'terminal', 'txt', 'html', 'all'.
         severity: Minimum severity to display ('low', 'medium', 'high', 'critical').
+        output_field: JSON key containing the model reply in HTTP mode.
+        extra_fields: Extra fixed key-value pairs merged into every request payload.
     """
     import importlib
 
@@ -260,6 +304,8 @@ def _launch_scan(
         target=resolved,
         context="LLM application",
         categories=categories,
+        output_field=output_field,
+        extra_fields=extra_fields or {},
         verbose=False,
     )
 

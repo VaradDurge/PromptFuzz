@@ -97,6 +97,7 @@ class Fuzzer:
         headers: dict[str, str] | None = None,
         input_field: str = "message",
         output_field: str = "response",
+        extra_fields: dict[str, str] | None = None,
     ) -> None:
         """Initialise the Fuzzer.
 
@@ -110,6 +111,7 @@ class Fuzzer:
             headers: Extra HTTP headers for URL-mode requests.
             input_field: JSON key containing the prompt for HTTP mode.
             output_field: JSON key containing the response for HTTP mode.
+            extra_fields: Extra fixed key-value pairs merged into every request payload.
         """
         self.target = target
         self.context = context
@@ -120,6 +122,7 @@ class Fuzzer:
         self.headers = headers or {}
         self.input_field = input_field
         self.output_field = output_field
+        self.extra_fields = extra_fields or {}
 
     @classmethod
     def from_config(cls, path: str) -> "Fuzzer":
@@ -169,6 +172,7 @@ class Fuzzer:
             headers=cfg.get("headers") or {},
             input_field=cfg.get("input_field", "message"),
             output_field=cfg.get("output_field", "response"),
+            extra_fields=cfg.get("extra_fields") or {},
         )
 
     def run(self) -> FuzzResult:
@@ -223,6 +227,7 @@ class Fuzzer:
             headers=self.headers,
             input_field=self.input_field,
             output_field=self.output_field,
+            extra_fields=self.extra_fields,
             max_workers=self.max_workers,
             timeout=self.timeout,
             verbose=self.verbose,

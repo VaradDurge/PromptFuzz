@@ -405,18 +405,25 @@ class Reporter:
             ))
         for ar in result.passed:
             all_attempts.append(("PASSED", ar.attack, ar.response or "(no response)", {}))
+        for ar in result.errors:
+            all_attempts.append(("ERROR", ar.attack, ar.response or f"(error: {ar.error})", {}))
 
         # Sort: vulnerabilities first (by severity), then passed
         def _sort_key(item: tuple) -> tuple:
             status, attack, *_ = item
             sev_idx = severity_order.index(attack.severity) if status == "VULNERABLE" else 99
-            return (0 if status == "VULNERABLE" else 1, sev_idx)
+            order = {"VULNERABLE": 0, "PASSED": 1, "ERROR": 2}
+            return (order.get(status, 1), sev_idx)
 
         all_attempts.sort(key=_sort_key)
 
         lines += [sep, f"ALL ATTEMPTS ({len(all_attempts)})", sep, ""]
         for i, (status, attack, model_response, extra) in enumerate(all_attempts, 1):
-            status_label = "VULNERABLE" if status == "VULNERABLE" else "passed   "
+            status_label = (
+                "VULNERABLE" if status == "VULNERABLE"
+                else "error    " if status == "ERROR"
+                else "passed   "
+            )
             lines += [
                 f"[{i}] [{status_label}] {attack.id} — {attack.name}",
                 f"    Severity   : {attack.severity.upper()}",

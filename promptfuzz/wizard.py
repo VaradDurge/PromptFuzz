@@ -38,36 +38,108 @@ _SEVERITY_CHOICES = [
 ]
 
 
-def _ask_url_fields() -> tuple[str, dict[str, str]]:
-    """Ask for the response field name and any extra fixed payload fields.
+def _probe_url(
+    url: str,
+    input_field: str,
+    output_field: str,
+    extra_fields: dict[str, str],
+) -> tuple[bool, str]:
+    """Send a single test request to the URL and return (success, message).
+
+    Args:
+        url: Target URL.
+        input_field: JSON key for the prompt.
+        output_field: JSON key for the reply.
+        extra_fields: Extra fixed fields to include in the payload.
+
+    Returns:
+        Tuple of (ok, diagnostic_message).
+    """
+    import httpx
+
+    payload = {input_field: "hello", **extra_fields}
+    try:
+        r = httpx.post(url, json=payload, timeout=10.0)
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except Exception:
+                body = r.text[:300]
+            return False, (
+                f"HTTP {r.status_code} — API rejected the request.\n"
+                f"  Response: {body}\n"
+                f"  Hint: Check if the API requires extra fields "
+                f"(e.g. conversation_id, session_id)."
+            )
+        try:
+            data = r.json()
+        except Exception:
+            return True, "Connected (non-JSON response). output_field ignored."
+        if output_field not in data:
+            available = ", ".join(str(k) for k in data.keys()) or "(empty)"
+            return False, (
+                f"Connected but response field '{output_field}' not found.\n"
+                f"  Available keys: {available}\n"
+                f"  Hint: Set the response field to one of the above."
+            )
+        return True, f"OK — received reply via '{output_field}' field."
+    except httpx.ConnectError:
+        return False, (
+            f"Cannot connect to {url}.\n"
+            f"  Hint: Is the server running? Check the URL."
+        )
+    except httpx.TimeoutException:
+        return False, "Connection timed out (10s). Is the server slow or unreachable?"
+
+
+def _ask_url_fields(url: str) -> tuple[str, dict[str, str]]:
+    """Ask for the response field name and extra payload fields, then probe the URL.
+
+    Args:
+        url: The target URL (used for the connection test).
 
     Returns:
         Tuple of (output_field, extra_fields dict).
     """
-    output_field = questionary.text(
-        "Response field name (JSON key the API returns the reply in):",
-        default="response",
-    ).ask()
-    if output_field is None:
-        sys.exit(0)
+    while True:
+        output_field = questionary.text(
+            "Response field name (JSON key the API returns the reply in):",
+            default="response",
+        ).ask()
+        if output_field is None:
+            sys.exit(0)
 
-    extra_raw = questionary.text(
-        "Extra payload fields? (e.g. conversation_id=abc123,api_key=xyz) "
-        "Leave blank to skip:",
-        default="",
-    ).ask()
-    if extra_raw is None:
-        sys.exit(0)
+        extra_raw = questionary.text(
+            "Extra payload fields? (e.g. conversation_id=abc123,api_key=xyz) "
+            "Leave blank to skip:",
+            default="",
+        ).ask()
+        if extra_raw is None:
+            sys.exit(0)
 
-    extra_fields: dict[str, str] = {}
-    if extra_raw.strip():
-        for pair in extra_raw.split(","):
-            pair = pair.strip()
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                extra_fields[k.strip()] = v.strip()
+        extra_fields: dict[str, str] = {}
+        if extra_raw.strip():
+            for pair in extra_raw.split(","):
+                pair = pair.strip()
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    extra_fields[k.strip()] = v.strip()
 
-    return output_field.strip() or "response", extra_fields
+        output_field = output_field.strip() or "response"
+
+        # Connection test
+        _console.print(f"[dim]Testing connection to {url}...[/dim]")
+        ok, msg = _probe_url(url, "message", output_field, extra_fields)
+        if ok:
+            _console.print(f"[green]Connection test passed:[/green] {msg}")
+            return output_field, extra_fields
+        else:
+            _console.print(f"[bold yellow]Connection test failed:[/bold yellow] {msg}")
+            retry = questionary.confirm(
+                "Fix the settings and try again?", default=True
+            ).ask()
+            if not retry:
+                return output_field, extra_fields
 
 
 def _ask_target() -> str:
@@ -213,7 +285,7 @@ def run_wizard() -> None:
     output_field = "response"
     extra_fields: dict[str, str] = {}
     if target.startswith("http://") or target.startswith("https://"):
-        output_field, extra_fields = _ask_url_fields()
+        output_field, extra_fields = _ask_url_fields(target)
     categories = _ask_categories()
     output_fmt = _ask_output()
     severity = _ask_severity()

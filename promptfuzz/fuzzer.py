@@ -98,6 +98,8 @@ class Fuzzer:
         input_field: str = "message",
         output_field: str = "response",
         extra_fields: dict[str, str] | None = None,
+        system_prompt: str | None = None,
+        judge_model: str = "gpt-4o-mini",
     ) -> None:
         """Initialise the Fuzzer.
 
@@ -112,6 +114,8 @@ class Fuzzer:
             input_field: JSON key containing the prompt for HTTP mode.
             output_field: JSON key containing the response for HTTP mode.
             extra_fields: Extra fixed key-value pairs merged into every request payload.
+            system_prompt: System prompt of the target app — enables LLM-as-judge mode.
+            judge_model: OpenAI model used as judge (default: gpt-4o-mini).
         """
         self.target = target
         self.context = context
@@ -123,6 +127,8 @@ class Fuzzer:
         self.input_field = input_field
         self.output_field = output_field
         self.extra_fields = extra_fields or {}
+        self.system_prompt = system_prompt
+        self.judge_model = judge_model
 
     @classmethod
     def from_config(cls, path: str) -> "Fuzzer":
@@ -246,7 +252,11 @@ class Fuzzer:
             attack_results = await runner.arun(attacks, progress)
 
         # 3. Analyse responses
-        analyzer = Analyzer()
+        if self.system_prompt:
+            from promptfuzz.analyzer import JudgeAnalyzer  # noqa: PLC0415
+            analyzer: Analyzer = JudgeAnalyzer(self.system_prompt, self.judge_model)
+        else:
+            analyzer = Analyzer()
         vulnerabilities: list[Vulnerability] = []
         passed: list[AnalysisResult] = []
         errors: list[AttackResult] = []

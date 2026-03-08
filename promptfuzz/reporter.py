@@ -403,7 +403,7 @@ class Reporter:
                     f"    Confidence : {vuln.result.confidence * 100:.0f}%",
                     f"    Description: {vuln.attack.description}",
                     f"    Evidence   : {vuln.result.evidence}",
-                    f"    Prompt     :",
+                    "    Prompt     :",
                 ]
                 # Wrap long prompt lines at 72 chars
                 prompt = vuln.attack.prompt

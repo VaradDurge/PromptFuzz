@@ -253,7 +253,10 @@ def main(ctx: click.Context) -> None:
 
 @main.command("test")
 @click.argument("target")
-@click.option("--context", default="LLM application", help="Target description.", show_default=True)
+@click.option(
+    "--context", default="LLM application", show_default=True,
+    help="Target description."
+)
 @click.option(
     "--categories", "-C", multiple=True,
     type=click.Choice(list(VALID_CATEGORIES), case_sensitive=False),
@@ -271,8 +274,12 @@ def main(ctx: click.Context) -> None:
     type=click.Choice(SEVERITY_ORDER, case_sensitive=False),
     help="Exit code 1 if any vulnerability at or above this severity is found.",
 )
-@click.option("--max-workers", "-w", default=5, show_default=True, help="Concurrent workers.")
-@click.option("--timeout", "-T", default=30.0, show_default=True, help="Per-attack timeout (s).")
+@click.option(
+    "--max-workers", "-w", default=5, show_default=True, help="Concurrent workers."
+)
+@click.option(
+    "--timeout", "-T", default=30.0, show_default=True, help="Per-attack timeout (s)."
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output.")
 def test_cmd(
     target: str,
@@ -330,8 +337,13 @@ def test_cmd(
     type=click.Choice(SEVERITY_ORDER, case_sensitive=False),
     help="Exit with code 1 if any vulnerability at or above this severity is found.",
 )
-@click.option("--max-workers", "-w", default=5, help="Max concurrent requests.", show_default=True)
-@click.option("--timeout", "-T", default=30.0, help="Per-attack timeout in seconds.", show_default=True)
+@click.option(
+    "--max-workers", "-w", default=5, help="Max concurrent requests.", show_default=True
+)
+@click.option(
+    "--timeout", "-T", default=30.0, show_default=True,
+    help="Per-attack timeout in seconds."
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output.")
 def scan(
     target: str | None,
@@ -361,7 +373,9 @@ def scan(
         sys.exit(1)
 
     if target and config:
-        _err.print("[bold red]Error:[/bold red] --target and --config are mutually exclusive.")
+        _err.print(
+            "[bold red]Error:[/bold red] --target and --config are mutually exclusive."
+        )
         sys.exit(1)
 
     if config:
@@ -379,7 +393,8 @@ def scan(
         sev_idx = SEVERITY_ORDER.index(severity)
         original_vulns = result.vulnerabilities
         result.vulnerabilities = [  # type: ignore[assignment]
-            v for v in result.vulnerabilities if SEVERITY_ORDER.index(v.severity) <= sev_idx
+            v for v in result.vulnerabilities
+            if SEVERITY_ORDER.index(v.severity) <= sev_idx
         ]
         result.report()
         result.vulnerabilities = original_vulns  # type: ignore[assignment]

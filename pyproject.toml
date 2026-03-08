@@ -59,12 +59,14 @@ promptfuzz = ["attacks/*.json"]
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+exclude = ["browser_test.py", "probe_pict.py", "my_test.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 "promptfuzz/reporter.py" = ["E501"]
+"promptfuzz/generators/openai_generator.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

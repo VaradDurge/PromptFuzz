@@ -423,9 +423,13 @@ class Analyzer:
                     f"but model refused — not a vulnerability."
                 )
             elif is_vulnerable:
-                evidence = f"Response length {response_len} exceeds threshold {threshold}."
+                evidence = (
+                    f"Response length {response_len} exceeds threshold {threshold}."
+                )
             else:
-                evidence = f"Response length {response_len} within threshold {threshold}."
+                evidence = (
+                    f"Response length {response_len} within threshold {threshold}."
+                )
         else:
             is_vulnerable = response_len < threshold
             confidence = 0.8 if is_vulnerable else 0.1

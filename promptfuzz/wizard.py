@@ -199,23 +199,25 @@ def run_wizard() -> None:
     }[output_fmt]
 
     summary = Text()
-    summary.append(f"  Target   : ", style="dim")
+    summary.append("  Target   : ", style="dim")
     summary.append(f"{target}\n", style="cyan")
-    summary.append(f"  Attacks  : ", style="dim")
+    summary.append("  Attacks  : ", style="dim")
     summary.append(f"{attack_count}  ({' + '.join(categories)})\n", style="green")
-    summary.append(f"  Output   : ", style="dim")
+    summary.append("  Output   : ", style="dim")
     summary.append(f"{output_label}\n")
-    summary.append(f"  Severity : ", style="dim")
+    summary.append("  Severity : ", style="dim")
     summary.append(f"{severity}+\n")
     if use_ai:
-        summary.append(f"  AI attacks: ", style="dim")
+        summary.append("  AI attacks: ", style="dim")
         summary.append("enabled\n", style="yellow")
 
     _console.print()
     _console.print(Panel(summary, title="Scan configuration", border_style="cyan"))
     _console.print()
 
-    go = questionary.confirm("Press ENTER to start scan (Ctrl+C to cancel)", default=True).ask()
+    go = questionary.confirm(
+        "Press ENTER to start scan (Ctrl+C to cancel)", default=True
+    ).ask()
     if not go:
         _console.print("[dim]Scan cancelled.[/dim]")
         sys.exit(0)
@@ -240,7 +242,7 @@ def _launch_scan(
     """
     import importlib
 
-    from promptfuzz.fuzzer import Fuzzer, SEVERITY_WEIGHTS  # noqa: F401
+    from promptfuzz.fuzzer import SEVERITY_WEIGHTS, Fuzzer  # noqa: F401
 
     # Resolve target
     if target.startswith("http://") or target.startswith("https://"):

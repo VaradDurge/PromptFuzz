@@ -112,13 +112,13 @@ class OpenAIAttackGenerator:
             config: GeneratorConfig with API key, category, and options.
         """
         try:
-            from openai import OpenAI
+            from openai import OpenAI as _OpenAI
         except ImportError as exc:
             raise ImportError(
                 "openai package required. Run: pip install openai"
             ) from exc
 
-        self._client = __import__("openai").OpenAI(api_key=config.api_key)
+        self._client = _OpenAI(api_key=config.api_key)
         self.config = config
 
     def generate(self) -> list[Attack]:

@@ -73,6 +73,7 @@ $ promptfuzz
   ─────────────────────────────────────────
   Press ENTER to start scan (Ctrl+C to cancel)
 ```
+ ![Wizard UI](assets/Wizard_UI.png)
 
 ### 2. `promptfuzz test` — quickest way to run from the terminal
 

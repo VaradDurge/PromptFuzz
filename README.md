@@ -75,7 +75,7 @@ $ promptfuzz
   ─────────────────────────────────────────
   Press ENTER to start scan (Ctrl+C to cancel)
 ```
- ![Wizard UI](assets/Wizard_UI.png)
+ 
 
 ### 2. `promptfuzz test` — quickest way to run from the terminal
 
@@ -94,6 +94,8 @@ promptfuzz test https://api.mychatbot.com/chat --fail-on high
 ```
 
 Sample terminal output:
+
+![Results](assets/Results.png)
 
 ```
 ──────────────── PromptFuzz Security Report ────────────────
@@ -152,6 +154,8 @@ result.save("report.html")  # HTML report
 ---
 
 ## Testing a FastAPI endpoint
+
+![URL/Endpoint](assets/Config_Manually.png)
 
 PromptFuzz works with any HTTP endpoint that accepts POST requests. No code changes needed.
 
@@ -281,6 +285,8 @@ blocking the merge.
 ---
 
 ## Security score
+
+
 
 | Score | Risk level |
 |---|---|

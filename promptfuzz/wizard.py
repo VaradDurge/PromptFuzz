@@ -43,6 +43,21 @@ _SEVERITY_CHOICES = [
     questionary.Choice("critical only", value="critical"),
 ]
 
+_SCAN_MODE_CHOICES = [
+    questionary.Choice(
+        "Single-shot only   — 165 targeted attacks, one prompt per test",
+        value="single",
+    ),
+    questionary.Choice(
+        "Multi-turn only    — 12 chain attacks, gradual escalation across turns",
+        value="chains",
+    ),
+    questionary.Choice(
+        "Both               — full coverage (recommended)",
+        value="both",
+    ),
+]
+
 
 # ---------------------------------------------------------------------------
 # Curl parsing
@@ -67,6 +82,22 @@ def _parse_curl(curl_str: str) -> dict[str, Any]:
 
     result: dict[str, Any] = {"url": None, "headers": {}, "body_fields": {}}
 
+    # Hop-by-hop and browser-managed headers that must not be forwarded to httpx.
+    # Forwarding Transfer-Encoding: chunked alongside a known-size JSON body causes
+    # HTTP/1.1 framing conflicts and HTTP 400 errors on many servers.
+    _HOP_BY_HOP = {
+        "transfer-encoding",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "upgrade",
+        "accept-encoding",  # httpx negotiates compression itself
+        "content-length",   # httpx sets this automatically for JSON payloads
+    }
+
     skip_flags = {
         "-X", "--request", "--compressed", "-s", "--silent", "-v", "--verbose"
     }
@@ -90,7 +121,8 @@ def _parse_curl(curl_str: str) -> dict[str, Any]:
                 header_str = tokens[i]
                 if ":" in header_str:
                     key, _, val = header_str.partition(":")
-                    result["headers"][key.strip()] = val.strip()
+                    if key.strip().lower() not in _HOP_BY_HOP:
+                        result["headers"][key.strip()] = val.strip()
             i += 1
             continue
 
@@ -98,7 +130,8 @@ def _parse_curl(curl_str: str) -> dict[str, Any]:
             header_str = tok[2:]
             if ":" in header_str:
                 key, _, val = header_str.partition(":")
-                result["headers"][key.strip()] = val.strip()
+                if key.strip().lower() not in _HOP_BY_HOP:
+                    result["headers"][key.strip()] = val.strip()
             i += 1
             continue
 
@@ -355,6 +388,17 @@ def _step_probe_and_pick_output(
     return (field or "response").strip()
 
 
+def _step_ask_scan_mode() -> Any:
+    """Ask whether to run single-shot, chains-only, or both. Returns str or _BACK."""
+    result = questionary.select(
+        "Attack mode:",
+        choices=_SCAN_MODE_CHOICES,
+    ).ask()
+    if result is None:
+        return _BACK
+    return result
+
+
 def _step_ask_categories() -> Any:
     """Multi-select attack categories. Returns list or _BACK."""
     choices = [
@@ -409,16 +453,14 @@ def _step_confirm_and_launch(
     output_field: str,
     extra_fields: dict[str, str],
     headers: dict[str, str],
+    scan_mode: str = "single",
 ) -> Any:
     """Show summary panel and ask to confirm.
 
     Returns True to launch, _BACK on ESC, False on No.
     """
+    from promptfuzz.attacks.chain_loader import ChainLoader
     from promptfuzz.attacks.loader import AttackLoader
-
-    loader = AttackLoader()
-    attacks = loader.load_categories(categories)
-    attack_count = len(attacks)
 
     output_label = {
         "terminal": "Terminal only",
@@ -430,8 +472,28 @@ def _step_confirm_and_launch(
     summary = Text()
     summary.append("  Target   : ", style="dim")
     summary.append(f"{target}\n", style="cyan")
-    summary.append("  Attacks  : ", style="dim")
-    summary.append(f"{attack_count}  ({' + '.join(categories)})\n", style="green")
+
+    if scan_mode in {"single", "both"}:
+        loader = AttackLoader()
+        attacks = loader.load_categories(categories)
+        summary.append("  Attacks  : ", style="dim")
+        summary.append(
+            f"{len(attacks)}  ({' + '.join(categories)})\n", style="green"
+        )
+
+    if scan_mode in {"chains", "both"}:
+        chain_loader = ChainLoader()
+        chains = chain_loader.load_all()
+        summary.append("  Chains   : ", style="dim")
+        summary.append(f"{len(chains)} multi-turn attack chains\n", style="magenta")
+
+    summary.append("  Mode     : ", style="dim")
+    mode_label = {
+        "single": "Single-shot only",
+        "chains": "Multi-turn chains only",
+        "both": "Both (full coverage)",
+    }[scan_mode]
+    summary.append(f"{mode_label}\n")
     summary.append("  Output   : ", style="dim")
     summary.append(f"{output_label}\n")
     summary.append("  Severity : ", style="dim")
@@ -533,14 +595,16 @@ def _run_manual_wizard() -> None:
     headers: dict[str, str] = {}
     extra_fields: dict[str, str] = {}
     output_field: str = "response"
+    scan_mode: str = "single"
     categories: list[str] = []
     output_fmt: str = "terminal"
     severity: str = "low"
 
     # URL targets:      0=target, 1=headers, 2=extra_fields, 3=output_field,
-    #                   4=categories, 5=output, 6=severity, 7=confirm
-    # Function targets: 0=target, 1-3=skipped, 4=categories, 5=output,
-    #                   6=severity, 7=confirm
+    #                   4=scan_mode, 5=categories*, 6=output, 7=severity, 8=confirm
+    # Function targets: 0=target, 1-3=skipped,
+    #                   4=scan_mode, 5=categories*, 6=output, 7=severity, 8=confirm
+    # *step 5 skipped when scan_mode == "chains"
 
     step = 0
     while True:
@@ -584,43 +648,52 @@ def _run_manual_wizard() -> None:
                 output_field = result
             step = 4
 
-        # ── Step 4: categories ───────────────────────────────────────────────
+        # ── Step 4: scan mode ────────────────────────────────────────────────
         elif step == 4:
-            result = _step_ask_categories()
+            result = _step_ask_scan_mode()
             if result is _BACK:
-                # Go back to output_field step (or target step for functions)
                 is_url = target.startswith("http://") or target.startswith("https://")
                 step = 3 if is_url else 0
                 continue
-            categories = result
-            step = 5
+            scan_mode = result
+            step = 5 if scan_mode in {"single", "both"} else 6
 
-        # ── Step 5: output format ────────────────────────────────────────────
+        # ── Step 5: categories (skipped for chains-only) ─────────────────────
         elif step == 5:
-            result = _step_ask_output()
+            result = _step_ask_categories()
             if result is _BACK:
                 step = 4
                 continue
-            output_fmt = result
+            categories = result
             step = 6
 
-        # ── Step 6: severity ─────────────────────────────────────────────────
+        # ── Step 6: output format ─────────────────────────────────────────────
         elif step == 6:
-            result = _step_ask_severity()
+            result = _step_ask_output()
             if result is _BACK:
-                step = 5
+                step = 5 if scan_mode in {"single", "both"} else 4
                 continue
-            severity = result
+            output_fmt = result
             step = 7
 
-        # ── Step 7: confirm + launch ─────────────────────────────────────────
+        # ── Step 7: severity ──────────────────────────────────────────────────
         elif step == 7:
+            result = _step_ask_severity()
+            if result is _BACK:
+                step = 6
+                continue
+            severity = result
+            step = 8
+
+        # ── Step 8: confirm + launch ──────────────────────────────────────────
+        elif step == 8:
             result = _step_confirm_and_launch(
                 target, categories, output_fmt, severity,
                 output_field, extra_fields, headers,
+                scan_mode=scan_mode,
             )
             if result is _BACK:
-                step = 6
+                step = 7
                 continue
             if not result:
                 _console.print("[dim]Scan cancelled.[/dim]")
@@ -629,6 +702,8 @@ def _run_manual_wizard() -> None:
             _launch_scan(
                 target, categories, output_fmt, severity,
                 output_field, extra_fields, headers=headers,
+                run_chains=scan_mode in {"chains", "both"},
+                run_attacks=scan_mode in {"single", "both"},
             )
             return
 
@@ -646,6 +721,7 @@ def _run_curl_wizard() -> None:
     input_field: str = "message"
     extra_fields: dict[str, str] = {}
     output_field: str = "response"
+    scan_mode: str = "single"
     categories: list[str] = []
     output_fmt: str = "terminal"
     severity: str = "low"
@@ -773,41 +849,53 @@ def _run_curl_wizard() -> None:
 
             step = 3
 
-        # ── Step 3: categories ───────────────────────────────────────────────
+        # ── Step 3: scan mode ────────────────────────────────────────────────
         elif step == 3:
-            result = _step_ask_categories()
+            result = _step_ask_scan_mode()
             if result is _BACK:
                 step = 2
                 continue
-            categories = result
-            step = 4
+            scan_mode = result
+            # Chains-only mode skips category selection (chains span all
+            # categories); jump straight to output format.
+            step = 4 if scan_mode in {"single", "both"} else 5
 
-        # ── Step 4: output format ────────────────────────────────────────────
+        # ── Step 4: categories (single-shot or both) ─────────────────────────
         elif step == 4:
-            result = _step_ask_output()
+            result = _step_ask_categories()
             if result is _BACK:
                 step = 3
                 continue
-            output_fmt = result
+            categories = result
             step = 5
 
-        # ── Step 5: severity ─────────────────────────────────────────────────
+        # ── Step 5: output format ─────────────────────────────────────────────
         elif step == 5:
-            result = _step_ask_severity()
+            result = _step_ask_output()
             if result is _BACK:
-                step = 4
+                step = 4 if scan_mode in {"single", "both"} else 3
                 continue
-            severity = result
+            output_fmt = result
             step = 6
 
-        # ── Step 6: confirm + launch ─────────────────────────────────────────
+        # ── Step 6: severity ──────────────────────────────────────────────────
         elif step == 6:
+            result = _step_ask_severity()
+            if result is _BACK:
+                step = 5
+                continue
+            severity = result
+            step = 7
+
+        # ── Step 7: confirm + launch ──────────────────────────────────────────
+        elif step == 7:
             result = _step_confirm_and_launch(
                 url, categories, output_fmt, severity,
                 output_field, extra_fields, headers,
+                scan_mode=scan_mode,
             )
             if result is _BACK:
-                step = 5
+                step = 6
                 continue
             if not result:
                 _console.print("[dim]Scan cancelled.[/dim]")
@@ -816,6 +904,8 @@ def _run_curl_wizard() -> None:
             _launch_scan(
                 url, categories, output_fmt, severity,
                 output_field, extra_fields, headers=headers,
+                run_chains=scan_mode in {"chains", "both"},
+                run_attacks=scan_mode in {"single", "both"},
             )
             return
 
@@ -826,11 +916,13 @@ def _run_curl_wizard() -> None:
 
 
 def _run_quick_scan() -> None:
-    """Ask for URL only and run all categories with defaults.
+    """Ask for URL, optional auth headers, optional extra fields, then fire all attacks.
 
     ESC goes back to landing.
     """
     url: str = ""
+    headers: dict[str, str] = {}
+    extra_fields: dict[str, str] = {}
     output_field: str = "response"
 
     step = 0
@@ -852,10 +944,30 @@ def _run_quick_scan() -> None:
             url = url_input
             step = 1
 
-        # ── Step 1: probe + output field ─────────────────────────────────────
+        # ── Step 1: headers ──────────────────────────────────────────────────
         elif step == 1:
+            result = _step_ask_headers()
+            if result is _BACK:
+                step = 0
+                continue
+            headers = result
+            step = 2
+
+        # ── Step 2: extra body fields ─────────────────────────────────────────
+        elif step == 2:
+            result = _step_ask_extra_fields()
+            if result is _BACK:
+                step = 1
+                continue
+            extra_fields = result
+            step = 3
+
+        # ── Step 3: probe + output field ─────────────────────────────────────
+        elif step == 3:
             _console.print(f"[dim]Probing {url}...[/dim]")
-            ok, msg, response_data = _probe_url_with_headers(url, {}, "message", "", {})
+            ok, msg, response_data = _probe_url_with_headers(
+                url, headers, "message", "", extra_fields
+            )
 
             if ok and response_data:
                 str_keys = [k for k, v in response_data.items() if isinstance(v, str)]
@@ -865,34 +977,34 @@ def _run_quick_scan() -> None:
                         f"[green]Connected![/green] Auto-selected output field: "
                         f"[bold]{output_field}[/bold]"
                     )
-                    step = 2
+                    step = 4
                 elif str_keys:
                     picked = _select_output_field_from_response(response_data)
                     if picked is None:
-                        step = 0
+                        step = 2
                         continue
                     output_field = picked
-                    step = 2
+                    step = 4
                 else:
                     _console.print("[green]Connected![/green]")
-                    step = 2
+                    step = 4
             elif ok:
                 _console.print(f"[green]Connected![/green] {msg}")
-                step = 2
+                step = 4
             else:
                 _console.print(f"[bold yellow]Probe failed:[/bold yellow] {msg}")
                 proceed = questionary.confirm(
                     "Continue anyway with default settings?", default=True
                 ).ask()
                 if proceed is None:
-                    step = 0
+                    step = 2
                     continue
                 if not proceed:
                     sys.exit(0)
-                step = 2
+                step = 4
 
-        # ── Step 2: launch ───────────────────────────────────────────────────
-        elif step == 2:
+        # ── Step 4: launch ───────────────────────────────────────────────────
+        elif step == 4:
             categories = list(VALID_CATEGORIES)
             _console.print(
                 f"[dim]Running all {len(categories)} categories "
@@ -900,7 +1012,8 @@ def _run_quick_scan() -> None:
             )
             _console.print()
             _launch_scan(
-                url, categories, "terminal", "low", output_field, {}, headers={}
+                url, categories, "terminal", "low", output_field,
+                extra_fields, headers=headers,
             )
             return
 
@@ -1025,6 +1138,8 @@ def _launch_scan(
     output_field: str = "response",
     extra_fields: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
+    run_chains: bool = False,
+    run_attacks: bool = True,
 ) -> None:
     """Execute the scan with the wizard's chosen settings.
 
@@ -1036,6 +1151,8 @@ def _launch_scan(
         output_field: JSON key containing the model reply in HTTP mode.
         extra_fields: Extra fixed key-value pairs merged into every request payload.
         headers: HTTP headers to include in every request.
+        run_chains: Whether to execute multi-turn attack chains.
+        run_attacks: Whether to execute single-shot attacks.
     """
     import importlib
 
@@ -1060,6 +1177,8 @@ def _launch_scan(
         extra_fields=extra_fields or {},
         headers=headers or {},
         verbose=False,
+        run_chains=run_chains,
+        run_attacks=run_attacks,
     )
 
     result = fuzzer.run()

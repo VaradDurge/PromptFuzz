@@ -59,6 +59,7 @@ Thumbs.db
 *.html
 *.json
 !promptfuzz/attacks/*.json
+!promptfuzz/attacks/chains/*.json
 
 # Misc
 *.log

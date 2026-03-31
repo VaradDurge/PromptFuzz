@@ -316,6 +316,38 @@ class Reporter:
                 )
             )
 
+        # ── Multi-turn chain results ──────────────────────────────────────
+        if result.chain_results:
+            chain_table = Table(
+                title="Multi-Turn Chain Results",
+                show_header=True,
+                header_style="bold dim",
+            )
+            chain_table.add_column("ID", style="dim", width=12)
+            chain_table.add_column("Name", min_width=30)
+            chain_table.add_column("Turns", width=6, justify="right")
+            chain_table.add_column("Result", width=10)
+            chain_table.add_column("Severity", width=10)
+            chain_table.add_column("Time", width=9, justify="right")
+
+            for cr in result.chain_results:
+                colour = SEVERITY_COLOURS.get(cr.final_severity, "white")
+                status = (
+                    Text("VULN", style="bold red")
+                    if cr.is_vulnerable
+                    else Text("SAFE", style="bold green")
+                )
+                chain_table.add_row(
+                    cr.chain.id,
+                    cr.chain.name,
+                    str(len(cr.turn_results)),
+                    status,
+                    Text(cr.final_severity.upper(), style=f"bold {colour}"),
+                    f"{cr.total_elapsed_ms:.0f}ms",
+                )
+            _console.print(chain_table)
+            _console.print()
+
         _console.print()
         _console.print(
             f"[dim]Target:[/dim] {result.target_description}  "
@@ -448,6 +480,30 @@ class Reporter:
                 lines.append(f"    Remediation: {extra['remediation']}")
                 lines.append(f"    Tags       : {', '.join(attack.tags)}")
             lines.append("")
+
+        # Chain results section
+        if result.chain_results:
+            lines += ["", sep, "MULTI-TURN CHAIN RESULTS", sep, ""]
+            for cr in result.chain_results:
+                status_label = "VULNERABLE" if cr.is_vulnerable else "SAFE"
+                lines += [
+                    f"[{status_label}] {cr.chain.id} — {cr.chain.name}",
+                    f"  Severity : {cr.final_severity.upper()}",
+                    f"  Turns    : {len(cr.turn_results)} executed",
+                    f"  Time     : {cr.total_elapsed_ms:.0f}ms",
+                    "  Path     :",
+                ]
+                for tr in cr.turn_results:
+                    vuln_marker = " [VULN]" if tr.is_vulnerable else ""
+                    lines.append(
+                        f"    {tr.turn.turn_id:<14} → branch={tr.branch_taken}"
+                        f"{vuln_marker}"
+                    )
+                    if tr.error:
+                        lines.append(f"      error: {tr.error}")
+                    elif tr.is_vulnerable:
+                        lines.append(f"      evidence: {tr.evidence}")
+                lines.append("")
 
         lines += [sep, "End of report", sep]
 

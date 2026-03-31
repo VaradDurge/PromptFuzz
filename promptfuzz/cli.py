@@ -10,9 +10,11 @@ from typing import Any
 import rich_click as click
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from promptfuzz import __version__
 from promptfuzz.attacks.loader import VALID_CATEGORIES, AttackLoader
+from promptfuzz.reporter import SEVERITY_COLOURS
 
 # ── rich-click global configuration ──────────────────────────────────────────
 click.rich_click.USE_RICH_MARKUP = True
@@ -116,6 +118,7 @@ def _run_scan(
     target_label: str | None = None,
     system_prompt: str | None = None,
     judge_model: str = "gpt-4o-mini",
+    run_chains: bool = False,
 ) -> None:
     """Resolve target, run fuzzer, print results, and optionally save reports.
 
@@ -158,6 +161,7 @@ def _run_scan(
         verbose=verbose,
         system_prompt=system_prompt,
         judge_model=judge_model,
+        run_chains=run_chains,
     )
 
     _console.print(f"[bold]PromptFuzz[/bold] v{__version__} — starting scan")
@@ -310,6 +314,14 @@ def main(ctx: click.Context) -> None:
     "--judge-model", "judge_model", default="gpt-4o-mini", show_default=True,
     help="OpenAI model used as judge (requires --system-prompt).",
 )
+@click.option(
+    "--multi-turn", "run_chains", is_flag=True, default=False,
+    help=(
+        "Include multi-turn attack chains. Tests gradual escalation, "
+        "context manipulation, and incremental extraction attacks that "
+        "single-shot fuzzing cannot detect."
+    ),
+)
 def test_cmd(
     target: str,
     context: str,
@@ -324,6 +336,7 @@ def test_cmd(
     verbose: bool,
     system_prompt: str | None,
     judge_model: str,
+    run_chains: bool,
 ) -> None:
     """Quick security test — pass a URL or module:function directly.
 
@@ -335,6 +348,7 @@ def test_cmd(
       $ promptfuzz test myapp:chat_handler --categories jailbreak injection
       $ promptfuzz test https://api.mychatbot.com/chat --fail-on high
       $ promptfuzz test myapp:chat --system-prompt "You are a RAG assistant..."
+      $ promptfuzz test https://api.mychatbot.com/chat --multi-turn
     """
     _run_scan(
         target=target,
@@ -350,6 +364,7 @@ def test_cmd(
         verbose=verbose,
         system_prompt=system_prompt,
         judge_model=judge_model,
+        run_chains=run_chains,
     )
 
 
@@ -383,6 +398,10 @@ def test_cmd(
     help="Per-attack timeout in seconds."
 )
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output.")
+@click.option(
+    "--multi-turn", "run_chains", is_flag=True, default=False,
+    help="Include multi-turn attack chains (gradual escalation, extraction).",
+)
 def scan(
     target: str | None,
     config: str | None,
@@ -396,6 +415,7 @@ def scan(
     max_workers: int,
     timeout: float,
     verbose: bool,
+    run_chains: bool,
 ) -> None:
     """Full scan with config file support and all advanced options.
 
@@ -404,6 +424,7 @@ def scan(
       $ promptfuzz scan --target https://api.mychatbot.com/chat
       $ promptfuzz scan --config promptfuzz.yaml --output report.html
       $ promptfuzz scan --target myapp:chat --categories jailbreak --fail-on high
+      $ promptfuzz scan --target https://api.mychatbot.com/chat --multi-turn
     """
     from promptfuzz.fuzzer import Fuzzer
 
@@ -469,6 +490,7 @@ def scan(
             max_workers=max_workers,
             timeout=timeout,
             verbose=verbose,
+            run_chains=run_chains,
         )
 
 
@@ -506,6 +528,34 @@ def list_attacks() -> None:
     table.add_row("[bold]TOTAL[/bold]", f"[bold]{grand_total}[/bold]", "", "", "", "")
 
     _console.print(table)
+
+    # Chain summary
+    from promptfuzz.attacks.chain_loader import ChainLoader  # noqa: PLC0415
+
+    chain_loader = ChainLoader()
+    chains = chain_loader.load_all()
+    if chains:
+        _console.print()
+        chain_table = Table(
+            title="Multi-Turn Attack Chains  (--multi-turn)",
+            show_header=True,
+            header_style="bold dim",
+        )
+        chain_table.add_column("ID", style="dim", width=14)
+        chain_table.add_column("Name", min_width=36)
+        chain_table.add_column("Category", width=16)
+        chain_table.add_column("Severity", width=10)
+        chain_table.add_column("Turns", width=6, justify="right")
+        for ch in chains:
+            colour = SEVERITY_COLOURS.get(ch.severity, "white")
+            chain_table.add_row(
+                ch.id,
+                ch.name,
+                ch.category,
+                Text(ch.severity.upper(), style=f"bold {colour}"),
+                str(len(ch.turns)),
+            )
+        _console.print(chain_table)
 
 
 @main.command("version")

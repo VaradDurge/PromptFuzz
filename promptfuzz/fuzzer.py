@@ -19,7 +19,8 @@ from rich.progress import (
 )
 
 from promptfuzz.analyzer import AnalysisResult, Analyzer, Vulnerability
-from promptfuzz.attacks.loader import AttackLoader
+from promptfuzz.attacks.chain_models import ChainResult
+from promptfuzz.attacks.loader import Attack, AttackLoader
 from promptfuzz.runner import AttackResult, Runner
 
 _console = Console()
@@ -45,6 +46,14 @@ class FuzzResult:
     score: int
     duration_seconds: float
     timestamp: str
+    # Multi-turn chain results — default [] for full backward compatibility.
+    # dataclasses.asdict() serialises these automatically into JSON output.
+    chain_results: list[ChainResult] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        """Ensure chain_results is never None after construction."""
+        if self.chain_results is None:
+            self.chain_results = []
 
     def report(self) -> None:
         """Print a human-readable result summary to the terminal."""
@@ -100,6 +109,8 @@ class Fuzzer:
         extra_fields: dict[str, str] | None = None,
         system_prompt: str | None = None,
         judge_model: str = "gpt-4o-mini",
+        run_chains: bool = False,
+        run_attacks: bool = True,
     ) -> None:
         """Initialise the Fuzzer.
 
@@ -116,6 +127,10 @@ class Fuzzer:
             extra_fields: Extra fixed key-value pairs merged into every request payload.
             system_prompt: System prompt of the target app — enables LLM-as-judge mode.
             judge_model: OpenAI model used as judge (default: gpt-4o-mini).
+            run_chains: When True, also execute multi-turn attack chains
+                after single-shot attacks. Default False.
+            run_attacks: When False, skip single-shot attacks entirely and
+                only run chains. Useful for chain-only mode. Default True.
         """
         self.target = target
         self.context = context
@@ -129,6 +144,8 @@ class Fuzzer:
         self.extra_fields = extra_fields or {}
         self.system_prompt = system_prompt
         self.judge_model = judge_model
+        self.run_chains = run_chains
+        self.run_attacks = run_attacks
 
     @classmethod
     def from_config(cls, path: str) -> "Fuzzer":
@@ -179,6 +196,7 @@ class Fuzzer:
             input_field=cfg.get("input_field", "message"),
             output_field=cfg.get("output_field", "response"),
             extra_fields=cfg.get("extra_fields") or {},
+            run_chains=cfg.get("run_chains", False),
         )
 
     def run(self) -> FuzzResult:
@@ -204,75 +222,166 @@ class Fuzzer:
         """
         start = datetime.now(timezone.utc)
 
-        # 1. Load attacks
-        loader = AttackLoader()
-        if self.categories:
-            attacks = loader.load_categories(self.categories)
-        else:
-            attacks = loader.load_all()
-
-        if not attacks:
-            _console.print(
-                "[bold red]Error:[/bold red] No attacks loaded. Check attack files."
-            )
-            return FuzzResult(
-                target_description=str(self.target),
-                context=self.context,
-                attacks_run=0,
-                vulnerabilities=[],
-                passed=[],
-                errors=[],
-                score=100,
-                duration_seconds=0.0,
-                timestamp=start.isoformat(),
-            )
-
-        # 2. Fire attacks
-        runner = Runner(
-            target=self.target,
-            headers=self.headers,
-            input_field=self.input_field,
-            output_field=self.output_field,
-            extra_fields=self.extra_fields,
-            max_workers=self.max_workers,
-            timeout=self.timeout,
-            verbose=self.verbose,
-        )
-
-        attack_results: list[AttackResult] = []
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            console=_console,
-            transient=True,
-        ) as progress:
-            attack_results = await runner.arun(attacks, progress)
-
-        # 3. Analyse responses
+        # Build the analyzer once — shared by both single-shot and chain phases
         if self.system_prompt:
             from promptfuzz.analyzer import JudgeAnalyzer  # noqa: PLC0415
             analyzer: Analyzer = JudgeAnalyzer(self.system_prompt, self.judge_model)
         else:
             analyzer = Analyzer()
+
         vulnerabilities: list[Vulnerability] = []
         passed: list[AnalysisResult] = []
         errors: list[AttackResult] = []
+        attacks_run = 0
 
-        for ar in attack_results:
-            if ar.status != "success" or ar.response is None:
-                errors.append(ar)
-                continue
-
-            analysis = analyzer.analyze(ar.attack, ar.response)
-            if analysis.is_vulnerable:
-                vulnerabilities.append(Vulnerability(attack=ar.attack, result=analysis))
+        if self.run_attacks:
+            # 1. Load attacks
+            loader = AttackLoader()
+            if self.categories:
+                attacks = loader.load_categories(self.categories)
             else:
-                passed.append(analysis)
+                attacks = loader.load_all()
 
-        # 4. Compute score
+            if not attacks and not self.run_chains:
+                _console.print(
+                    "[bold red]Error:[/bold red] No attacks loaded. "
+                    "Check attack files."
+                )
+                return FuzzResult(
+                    target_description=str(self.target),
+                    context=self.context,
+                    attacks_run=0,
+                    vulnerabilities=[],
+                    passed=[],
+                    errors=[],
+                    score=100,
+                    duration_seconds=0.0,
+                    timestamp=start.isoformat(),
+                )
+
+            attacks_run = len(attacks)
+
+            # 2. Fire attacks
+            runner = Runner(
+                target=self.target,
+                headers=self.headers,
+                input_field=self.input_field,
+                output_field=self.output_field,
+                extra_fields=self.extra_fields,
+                max_workers=self.max_workers,
+                timeout=self.timeout,
+                verbose=self.verbose,
+            )
+
+            attack_results: list[AttackResult] = []
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                console=_console,
+                transient=True,
+            ) as progress:
+                attack_results = await runner.arun(attacks, progress)
+
+            # 3. Analyse responses
+            for ar in attack_results:
+                if ar.status != "success" or ar.response is None:
+                    errors.append(ar)
+                    continue
+
+                analysis = analyzer.analyze(ar.attack, ar.response)
+                if analysis.is_vulnerable:
+                    vulnerabilities.append(
+                        Vulnerability(attack=ar.attack, result=analysis)
+                    )
+                else:
+                    passed.append(analysis)
+
+        # 4. Run multi-turn chains (optional)
+        chain_results: list[ChainResult] = []
+        if self.run_chains:
+            from promptfuzz.attacks.chain_loader import ChainLoader  # noqa: PLC0415
+            from promptfuzz.chain_runner import ChainRunner  # noqa: PLC0415
+
+            chain_loader = ChainLoader()
+            chains = (
+                chain_loader.load_categories(self.categories)
+                if self.categories
+                else chain_loader.load_all()
+            )
+
+            if chains:
+                chain_runner = ChainRunner(
+                    target=self.target,
+                    analyzer=analyzer,
+                    headers=self.headers,
+                    input_field=self.input_field,
+                    output_field=self.output_field,
+                    extra_fields=self.extra_fields,
+                    # Use half of max_workers: each chain makes 2-6
+                    # sequential requests, so effective concurrency is
+                    # already higher per slot than single-shot attacks.
+                    max_workers=max(1, self.max_workers // 2),
+                    timeout=self.timeout,
+                )
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                    TimeElapsedColumn(),
+                    console=_console,
+                    transient=True,
+                ) as chain_progress:
+                    chain_results = await chain_runner.arun(
+                        chains, chain_progress
+                    )
+
+                # Promote chain vulnerabilities into the main vulnerabilities
+                # list so that scoring, reporter, and CI/CD fail-on logic all
+                # work without modification. The chain ID (e.g. "CH-JB-001")
+                # distinguishes them from single-shot findings in reports.
+                for cr in chain_results:
+                    if not cr.is_vulnerable:
+                        continue
+                    # Use the last vulnerable turn as the representative result.
+                    last_vuln = next(
+                        (tr for tr in reversed(cr.turn_results) if tr.is_vulnerable),
+                        None,
+                    )
+                    if last_vuln is None:
+                        continue
+                    synth_attack = Attack(
+                        id=cr.chain.id,
+                        name=cr.chain.name,
+                        category=cr.chain.category,
+                        severity=cr.chain.severity,
+                        description=cr.chain.description,
+                        prompt=last_vuln.rendered_prompt,
+                        detection=last_vuln.turn.detection,
+                        tags=list(cr.chain.tags),
+                        remediation=cr.chain.remediation,
+                    )
+                    from promptfuzz.analyzer import DetectionStrategy  # noqa: PLC0415
+                    synth_analysis = AnalysisResult(
+                        attack=synth_attack,
+                        response=last_vuln.response or "",
+                        is_vulnerable=True,
+                        confidence=last_vuln.confidence,
+                        evidence=(
+                            f"[Chain: {len(cr.turn_results)} turns] "
+                            f"{last_vuln.evidence}"
+                        ),
+                        strategy_used=DetectionStrategy.KEYWORD,
+                        elapsed_ms=cr.total_elapsed_ms,
+                    )
+                    vulnerabilities.append(
+                        Vulnerability(attack=synth_attack, result=synth_analysis)
+                    )
+
+        # 5. Compute score
         score = self._compute_score(vulnerabilities)
 
         duration = (datetime.now(timezone.utc) - start).total_seconds()
@@ -287,13 +396,14 @@ class Fuzzer:
         return FuzzResult(
             target_description=target_desc,
             context=self.context,
-            attacks_run=len(attacks),
+            attacks_run=attacks_run,
             vulnerabilities=vulnerabilities,
             passed=passed,
             errors=errors,
             score=score,
             duration_seconds=duration,
             timestamp=start.isoformat(),
+            chain_results=chain_results,
         )
 
     @staticmethod

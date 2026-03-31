@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "promptfuzz"
-version = "0.1.5"
+version = "0.2.0"
 description = "Adversarial security testing framework for LLM applications"
 readme = "README.md"
 license = { text = "AGPL-3.0" }
@@ -54,7 +54,7 @@ where = ["."]
 include = ["promptfuzz*"]
 
 [tool.setuptools.package-data]
-promptfuzz = ["attacks/*.json"]
+promptfuzz = ["attacks/*.json", "attacks/chains/*.json"]
 
 [tool.ruff]
 line-length = 88

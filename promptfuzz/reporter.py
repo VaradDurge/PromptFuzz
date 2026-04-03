@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from jinja2 import Environment
 from rich import box
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 

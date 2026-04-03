@@ -24,7 +24,8 @@ click.rich_click.GROUP_ARGUMENTS_OPTIONS = False
 click.rich_click.SHOW_METAVARS_COLUMN = False
 click.rich_click.APPEND_METAVARS_HELP = True
 click.rich_click.HEADER_TEXT = (
-    f"[bold white]PROMPT[/bold white][bold red]FUZZ[/bold red]  [dim]v{__version__}[/dim]\n"
+    f"[bold white]PROMPT[/bold white][bold red]FUZZ[/bold red]"
+    f"  [dim]v{__version__}[/dim]\n"
     "[dim]adversarial LLM security testing  ·  165 attacks  ·  5 categories[/dim]"
 )
 click.rich_click.FOOTER_TEXT = (

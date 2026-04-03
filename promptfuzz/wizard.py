@@ -10,7 +10,6 @@ from typing import Any
 
 import questionary
 from rich.console import Console
-from rich.panel import Panel
 from rich.text import Text
 
 from promptfuzz import __version__
@@ -1043,7 +1042,9 @@ def _show_help() -> None:
 
     help_text.append("getting a curl from devtools\n", style="bold")
     help_text.append("  1. open chrome/edge → F12 → network tab\n", style="dim")
-    help_text.append("  2. send a message to your chatbot in the browser\n", style="dim")
+    help_text.append(
+        "  2. send a message to your chatbot in the browser\n", style="dim"
+    )
     help_text.append(
         "  3. right-click the request → copy → copy as cURL (bash)\n", style="dim"
     )
@@ -1062,7 +1063,9 @@ def _show_help() -> None:
         "  promptfuzz scan --target http://localhost:8000/chat --verbose\n", style="dim"
     )
     help_text.append(
-        "  promptfuzz scan --target mymodule:my_fn --categories jailbreak\n", style="dim"
+        "  promptfuzz scan --target mymodule:my_fn"
+        " --categories jailbreak\n",
+        style="dim",
     )
     help_text.append("  promptfuzz list-attacks\n\n", style="dim")
 
@@ -1110,7 +1113,7 @@ def run_wizard() -> None:
         "how to set up your scan?",
         choices=[
             questionary.Choice(
-                "curl import    ★  paste a curl command — auto-detects URL, headers & fields",
+                "curl import    ★  paste a curl — auto-detects URL, headers & fields",
                 value="curl",
             ),
             questionary.Choice(

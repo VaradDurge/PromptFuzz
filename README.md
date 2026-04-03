@@ -20,6 +20,9 @@ conversation-level escalation sequences — at your application and generates a 
 vulnerability report in seconds.
 
 ---
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VaradDurge/PromptFuzz/master/assets/PFui.png" width="500"/>
+</p>
 
 ## Install
 
@@ -40,7 +43,7 @@ pip install "promptfuzz[anthropic]"  # if your target uses Anthropic
 
 ### 1. Interactive wizard (recommended for first-time users)
 
-![Wizard UI](assets/Wizard_UI.png)
+
 
 Just run `promptfuzz` with no arguments:
 

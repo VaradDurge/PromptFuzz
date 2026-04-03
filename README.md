@@ -20,6 +20,9 @@ conversation-level escalation sequences — at your application and generates a 
 vulnerability report in seconds.
 
 ---
+
+Interactive Wizard:
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/VaradDurge/PromptFuzz/master/assets/PFui.png" width="500"/>
 </p>
@@ -39,10 +42,16 @@ pip install "promptfuzz[anthropic]"  # if your target uses Anthropic
 
 ---
 
+Sample terminal output:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VaradDurge/PromptFuzz/master/assets/FinalReport.png" width="500"/>
+</p>
+
+
 ## Quick start
 
 ### 1. Interactive wizard (recommended for first-time users)
-
 
 
 Just run `promptfuzz` with no arguments:
@@ -97,9 +106,6 @@ promptfuzz test myapp:chat_handler --categories jailbreak injection
 promptfuzz test https://api.mychatbot.com/chat --fail-on high
 ```
 
-Sample terminal output:
-
-![Results](assets/Results.png)
 
 
 ### 3. `promptfuzz scan` — full power CLI with config file support
@@ -132,7 +138,9 @@ result.save("report.html")  # HTML report
 
 ## Testing a FastAPI endpoint
 
-![URL/Endpoint](assets/Config_Manually.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VaradDurge/PromptFuzz/master/assets/manually.png" width="500"/>
+</p>
 
 PromptFuzz works with any HTTP endpoint that accepts POST requests. No code changes needed.
 
@@ -166,6 +174,10 @@ and reads the `"response"` field from the reply. Both field names are configurab
 ---
 
 ## Attack categories
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VaradDurge/PromptFuzz/master/assets/SingleMulti.png" width="500"/>
+</p>
 
 ### Single-turn attacks (165 prompts)
 

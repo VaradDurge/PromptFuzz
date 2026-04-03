@@ -8,6 +8,7 @@ import shlex
 import sys
 from typing import Any
 
+import click
 import questionary
 from rich.console import Console
 from rich.text import Text
@@ -35,6 +36,22 @@ _LOGO_FUZZ = (
     "  |  _|  | |_| | / /_   / /_  \n"
     "  |_|     \\___/ /_____|/_____|"
 )
+
+
+def _print_header() -> None:
+    """Clear the screen and reprint the PromptFuzz logo + tagline."""
+    click.clear()
+    _console.print()
+    _console.print(_LOGO_PROMPT, style="bold white")
+    _console.print(_LOGO_FUZZ, style="bold red")
+    _console.print()
+    _console.print(
+        f"  [dim]adversarial LLM security testing"
+        f"  ·  v{__version__}"
+        f"  ·  165 attacks  ·  5 categories[/dim]"
+    )
+    _console.rule(style="dim")
+    _console.print()
 
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "jailbreak": "Persona switches, DAN, roleplay bypasses",
@@ -630,7 +647,7 @@ def _run_manual_wizard() -> None:
         if step == 0:
             result = _step_ask_target()
             if result is _BACK:
-                run_wizard()
+                _run_landing()
                 return
             target = result
             step = 1
@@ -754,7 +771,7 @@ def _run_curl_wizard() -> None:
             )
             curl_raw = questionary.text("curl:").ask()
             if curl_raw is None:
-                run_wizard()
+                _run_landing()
                 return
 
             parsed = _parse_curl(curl_raw.strip())
@@ -953,7 +970,7 @@ def _run_quick_scan() -> None:
                 ),
             ).ask()
             if url_input is None:
-                run_wizard()
+                _run_landing()
                 return
             url = url_input
             step = 1
@@ -1077,13 +1094,13 @@ def _show_help() -> None:
     help_text.append("  result = Fuzzer(target=my_bot).run()\n", style="dim")
     help_text.append("  result.report()\n", style="dim")
 
-    _console.print()
+    _print_header()
     _console.rule("[dim]help[/dim]", style="dim")
     _console.print(help_text)
     _console.rule(style="dim")
     _console.print()
 
-    run_wizard()
+    _run_landing()
 
 
 # ---------------------------------------------------------------------------
@@ -1091,23 +1108,12 @@ def _show_help() -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_wizard() -> None:
-    """Show the landing screen and route to the chosen setup path.
+def _run_landing() -> None:
+    """Clear screen, reprint header, show landing menu, and route to chosen path.
 
-    Presents four options: manual setup, curl import, quick scan, and help.
     ESC on landing screen exits the program.
     """
-    _console.print()
-    _console.print(_LOGO_PROMPT, style="bold white")
-    _console.print(_LOGO_FUZZ, style="bold red")
-    _console.print()
-    _console.print(
-        f"  [dim]adversarial LLM security testing"
-        f"  ·  v{__version__}"
-        f"  ·  165 attacks  ·  5 categories[/dim]"
-    )
-    _console.rule(style="dim")
-    _console.print()
+    _print_header()
 
     choice = questionary.select(
         "how to set up your scan?",
@@ -1142,6 +1148,15 @@ def run_wizard() -> None:
         _run_quick_scan()
     elif choice == "help":
         _show_help()
+
+
+def run_wizard() -> None:
+    """Entry point: show the landing screen and route to the chosen setup path.
+
+    Presents four options: manual setup, curl import, quick scan, and help.
+    ESC on landing screen exits the program.
+    """
+    _run_landing()
 
 
 # ---------------------------------------------------------------------------
